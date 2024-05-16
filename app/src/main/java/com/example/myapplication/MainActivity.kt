@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         registerInternetBroadcastReceiver()
+        scheduleAirplaneBluetoothCheck()
     }
 
     @Composable
@@ -89,5 +90,69 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(internetReceiver)
+    }
+
+    private fun scheduleAirplaneBluetoothCheck() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val periodicWorkRequest = PeriodicWorkRequestBuilder<AirplaneBluetoothWorker>(
+            repeatInterval = 2,
+            repeatIntervalTimeUnit = TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "AirplaneBluetoothCheck",
+            ExistingPeriodicWorkPolicy.REPLACE,
+            periodicWorkRequest
+        )
+    }
+}
+
+class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    companion object {
+        const val TAG = "airplane_worker"
+    }
+
+    private val LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(2)
+    private val handler = Handler(Looper.getMainLooper())
+    private var timer: Timer? = null
+
+    override fun doWork(): Result {
+        val currentTimeMillis = System.currentTimeMillis()
+        Log.i(TAG, "Work started at: $currentTimeMillis")
+
+        // Start periodic logging task
+        startLoggingTask()
+
+        return Result.success()
+    }
+
+    private fun startLoggingTask() {
+        timer = Timer()
+        timer?.scheduleAtFixedRate(object : TimerTask() {
+            override fun run() {
+                logStatus()
+            }
+        }, 0, LOG_INTERVAL_MS)
+    }
+
+    private fun logStatus() {
+        val isAirplaneModeOn = Settings.Global.getInt(
+            applicationContext.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0
+        ) != 0
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        val isBluetoothOn = bluetoothAdapter?.isEnabled ?: false
+
+        Log.i(TAG, "Airplane Mode: ${if (isAirplaneModeOn) "ON" else "OFF"}")
+        Log.i(TAG, "Bluetooth: ${if (isBluetoothOn) "ON" else "OFF"}")
+    }
+
+    override fun onStopped() {
+        super.onStopped()
+        timer?.cancel()
     }
 }
