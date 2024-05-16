@@ -29,6 +29,15 @@ import android.os.Handler
 import android.os.Looper
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.*
+
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private var isInternetConnected by mutableStateOf(false)
@@ -48,6 +57,7 @@ class MainActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         InternetStatus(isInternetConnected)
+                        LogList() // Display log list
                     }
                 }
             }
@@ -110,15 +120,45 @@ class MainActivity : ComponentActivity() {
             periodicWorkRequest
         )
     }
+
+    @Composable
+    fun LogList() {
+        val logs = readLogsFromFile(this).reversed() // Reverse the order of logs
+        LazyColumn {
+            items(logs) { log ->
+                LogItem(log)
+            }
+        }
+    }
+
+    @Composable
+    fun LogItem(log: String) {
+        Text(text = log)
+    }
+
+    private fun readLogsFromFile(context: Context): List<String> {
+        val logs = mutableListOf<String>()
+        try {
+            val file = File(context.filesDir, AirplaneBluetoothWorker.LOG_FILE_NAME)
+            if (file.exists()) {
+                file.forEachLine { line ->
+                    logs.add(line)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(AirplaneBluetoothWorker.TAG, "Error reading log file: ${e.message}")
+        }
+        return logs
+    }
 }
 
 class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     companion object {
         const val TAG = "airplane_worker"
+        const val LOG_FILE_NAME = "log.txt"
     }
 
     private val LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(2)
-    private val handler = Handler(Looper.getMainLooper())
     private var timer: Timer? = null
 
     override fun doWork(): Result {
@@ -147,8 +187,27 @@ class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Work
         val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
         val isBluetoothOn = bluetoothAdapter?.isEnabled ?: false
 
-        Log.i(TAG, "Airplane Mode: ${if (isAirplaneModeOn) "ON" else "OFF"}")
-        Log.i(TAG, "Bluetooth: ${if (isBluetoothOn) "ON" else "OFF"}")
+        val logMessage = "Timestamp: ${getCurrentTimeStamp()} | Airplane Mode: ${if (isAirplaneModeOn) "ON" else "OFF"} | Bluetooth: ${if (isBluetoothOn) "ON" else "OFF"}"
+        Log.i(TAG, logMessage)
+
+        // Write log to file
+        writeLogToFile(logMessage)
+    }
+
+    private fun getCurrentTimeStamp(): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        return sdf.format(Date())
+    }
+
+    private fun writeLogToFile(logMessage: String) {
+        try {
+            val file = File(applicationContext.filesDir, LOG_FILE_NAME)
+            val fos = FileOutputStream(file, true)
+            fos.write("$logMessage\n".toByteArray())
+            fos.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing to file: ${e.message}")
+        }
     }
 
     override fun onStopped() {
