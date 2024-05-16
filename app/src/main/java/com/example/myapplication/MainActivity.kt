@@ -123,7 +123,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun LogList() {
-        val logs = readLogsFromFile(this)
+        val logs = readLogsFromFile(this).reversed() // Reverse the order of logs
         LazyColumn {
             items(logs) { log ->
                 LogItem(log)
