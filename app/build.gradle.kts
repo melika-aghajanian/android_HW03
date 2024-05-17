@@ -69,4 +69,5 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.compose.runtime:runtime-livedata:1.6.4")
+    implementation ("com.google.code.gson:gson:2.8.8")
 }
