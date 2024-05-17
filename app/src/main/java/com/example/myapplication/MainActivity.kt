@@ -25,19 +25,17 @@ import java.util.concurrent.TimeUnit
 import android.provider.Settings
 import android.bluetooth.BluetoothAdapter
 import android.util.Log
-import android.os.Handler
-import android.os.Looper
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.*
-
+import java.io.File
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
-import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 
 class MainActivity : ComponentActivity() {
     private var isInternetConnected by mutableStateOf(false)
@@ -132,18 +130,18 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun LogItem(log: String) {
-        Text(text = log)
+    fun LogItem(log: LogEntry) {
+        Text(text = "Timestamp: ${log.timestamp} | Airplane Mode: ${log.airplaneMode} | Bluetooth: ${log.bluetooth}")
     }
 
-    private fun readLogsFromFile(context: Context): List<String> {
-        val logs = mutableListOf<String>()
+    private fun readLogsFromFile(context: Context): List<LogEntry> {
+        val logs = mutableListOf<LogEntry>()
         try {
             val file = File(context.filesDir, AirplaneBluetoothWorker.LOG_FILE_NAME)
             if (file.exists()) {
-                file.forEachLine { line ->
-                    logs.add(line)
-                }
+                val json = file.readText()
+                val type = object : TypeToken<List<LogEntry>>() {}.type
+                logs.addAll(Gson().fromJson(json, type))
             }
         } catch (e: Exception) {
             Log.e(AirplaneBluetoothWorker.TAG, "Error reading log file: ${e.message}")
@@ -152,10 +150,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+data class LogEntry(val timestamp: String, val airplaneMode: String, val bluetooth: String)
+
 class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     companion object {
         const val TAG = "airplane_worker"
-        const val LOG_FILE_NAME = "log.txt"
+        const val LOG_FILE_NAME = "log.json"
     }
 
     private val LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(2)
@@ -187,11 +187,11 @@ class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Work
         val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
         val isBluetoothOn = bluetoothAdapter?.isEnabled ?: false
 
-        val logMessage = "Timestamp: ${getCurrentTimeStamp()} | Airplane Mode: ${if (isAirplaneModeOn) "ON" else "OFF"} | Bluetooth: ${if (isBluetoothOn) "ON" else "OFF"}"
-        Log.i(TAG, logMessage)
+        val logEntry = LogEntry(getCurrentTimeStamp(), if (isAirplaneModeOn) "ON" else "OFF", if (isBluetoothOn) "ON" else "OFF")
+        val json = Gson().toJson(logEntry)
 
         // Write log to file
-        writeLogToFile(logMessage)
+        writeLogToFile(json)
     }
 
     private fun getCurrentTimeStamp(): String {
@@ -199,12 +199,13 @@ class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Work
         return sdf.format(Date())
     }
 
-    private fun writeLogToFile(logMessage: String) {
+    private fun writeLogToFile(json: String) {
         try {
             val file = File(applicationContext.filesDir, LOG_FILE_NAME)
-            val fos = FileOutputStream(file, true)
-            fos.write("$logMessage\n".toByteArray())
-            fos.close()
+            if (!file.exists()) {
+                file.createNewFile()
+            }
+            file.appendText("$json\n")
         } catch (e: Exception) {
             Log.e(TAG, "Error writing to file: ${e.message}")
         }
