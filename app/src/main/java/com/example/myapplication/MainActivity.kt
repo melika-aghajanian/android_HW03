@@ -106,10 +106,8 @@ class MainActivity : ComponentActivity() {
             .build()
 
         val periodicWorkRequest = PeriodicWorkRequestBuilder<AirplaneBluetoothWorker>(
-            repeatInterval = 2,
-            repeatIntervalTimeUnit = TimeUnit.MINUTES
-        )
-            .setConstraints(constraints)
+            2, TimeUnit.MINUTES
+        ).setConstraints(constraints)
             .build()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -135,18 +133,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readLogsFromFile(context: Context): List<LogEntry> {
-        val logs = mutableListOf<LogEntry>()
-        try {
+        return try {
             val file = File(context.filesDir, AirplaneBluetoothWorker.LOG_FILE_NAME)
             if (file.exists()) {
                 val json = file.readText()
                 val type = object : TypeToken<List<LogEntry>>() {}.type
-                logs.addAll(Gson().fromJson(json, type))
+                Gson().fromJson(json, type)
+            } else {
+                emptyList()
             }
         } catch (e: Exception) {
             Log.e(AirplaneBluetoothWorker.TAG, "Error reading log file: ${e.message}")
+            emptyList()
         }
-        return logs
     }
 }
 
@@ -154,30 +153,13 @@ data class LogEntry(val timestamp: String, val airplaneMode: String, val bluetoo
 
 class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     companion object {
-        const val TAG = "airplane_worker"
+        const val TAG = "AirplaneBluetoothWorker"
         const val LOG_FILE_NAME = "log.json"
     }
 
-    private val LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(2)
-    private var timer: Timer? = null
-
     override fun doWork(): Result {
-        val currentTimeMillis = System.currentTimeMillis()
-        Log.i(TAG, "Work started at: $currentTimeMillis")
-
-        // Start periodic logging task
-        startLoggingTask()
-
+        logStatus()
         return Result.success()
-    }
-
-    private fun startLoggingTask() {
-        timer = Timer()
-        timer?.scheduleAtFixedRate(object : TimerTask() {
-            override fun run() {
-                logStatus()
-            }
-        }, 0, LOG_INTERVAL_MS)
     }
 
     private fun logStatus() {
@@ -188,9 +170,10 @@ class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Work
         val isBluetoothOn = bluetoothAdapter?.isEnabled ?: false
 
         val logEntry = LogEntry(getCurrentTimeStamp(), if (isAirplaneModeOn) "ON" else "OFF", if (isBluetoothOn) "ON" else "OFF")
-        val json = Gson().toJson(logEntry)
+        val logs = readLogsFromFile().toMutableList()
+        logs.add(logEntry)
+        val json = Gson().toJson(logs)
 
-        // Write log to file
         writeLogToFile(json)
     }
 
@@ -202,17 +185,26 @@ class AirplaneBluetoothWorker(context: Context, params: WorkerParameters) : Work
     private fun writeLogToFile(json: String) {
         try {
             val file = File(applicationContext.filesDir, LOG_FILE_NAME)
-            if (!file.exists()) {
-                file.createNewFile()
-            }
-            file.appendText("$json\n")
+            file.writeText(json)
         } catch (e: Exception) {
             Log.e(TAG, "Error writing to file: ${e.message}")
         }
     }
 
-    override fun onStopped() {
-        super.onStopped()
-        timer?.cancel()
+    private fun readLogsFromFile(): List<LogEntry> {
+        return try {
+            val file = File(applicationContext.filesDir, LOG_FILE_NAME)
+            if (file.exists()) {
+                val json = file.readText()
+                val type = object : TypeToken<List<LogEntry>>() {}.type
+                Gson().fromJson(json, type)
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading log file: ${e.message}")
+            emptyList()
+        }
     }
 }
+
